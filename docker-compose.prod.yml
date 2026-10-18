@@ -1,0 +1,101 @@
+# Production-shaped deployment.
+#
+# Deliberately a separate file from docker-compose.yml rather than a profile on it. The
+# development file exists to be convenient; this one exists to be safe, and the two
+# requirements genuinely conflict:
+#
+#   dev  wants source mounted, the database port exposed, secrets written in plain text,
+#        and the API starting even when the database is not ready.
+#   prod wants none of those, and additionally wants secrets to never appear in the file.
+#
+# Keeping them apart means a production review reads 80 lines that are all about
+# production, instead of scanning a file where every third line is `profiles: ["obs"]`.
+#
+# Usage:
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d
+#
+# There is no `build:` on `api` or `web`: production runs images that were built, scanned
+# and tagged by CI, not images composed on the host at deploy time. Pinning them with
+# IMAGE_TAG is what makes a rollback a one-line change rather than a rebuild.
+
+name: swarm-app-prod
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    # No `ports:`. The database is reachable on the compose network and nowhere else;
+    # publishing 5432 is how a development convenience becomes a production incident.
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER}
+      # No default. A compose file with a fallback password is a compose file that ships
+      # with a known password.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  api:
+    image: ${API_IMAGE:?set API_IMAGE}:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      # Read-only filesystem below means nothing may write here except the temp mount.
+      ASPNETCORE_URLS: http://+:8080
+      ConnectionStrings__Default: ${CONNECTION_STRING:?set CONNECTION_STRING}
+      Database__MigrateOnStartup: "true"
+      # Secrets come from the environment, never from this file.
+      Billing__WebhookSecret: ${BILLING_WEBHOOK_SECRET:-}
+      Billing__SecretKey: ${BILLING_SECRET_KEY:-}
+      Email__Provider: ${EMAIL_PROVIDER:-capture}
+      Email__PublicBaseUrl: ${PUBLIC_BASE_URL:?set PUBLIC_BASE_URL}
+      OpenTelemetry__Endpoint: ${OTEL_ENDPOINT:-}
+    ports:
+      - "127.0.0.1:5080:8080"
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  web:
+    image: ${WEB_IMAGE:?set WEB_IMAGE}:${IMAGE_TAG:?set IMAGE_TAG}
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:8080:8080"
+    read_only: true
+    tmpfs:
+      # nginx writes its pid and client-body temp files; nothing else needs a write.
+      - /tmp
+      - /var/cache/nginx
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  postgres-data:

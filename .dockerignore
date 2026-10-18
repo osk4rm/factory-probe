@@ -1,0 +1,18 @@
+# Build output
+**/bin/
+**/obj/
+**/dist/
+**/node_modules/
+
+# IDE / tooling
+.vs/
+.vscode/
+.idea/
+*.user
+
+# Local env and data
+.env
+.env.*
+!.env.example
+data/
+*.log

@@ -1,0 +1,50 @@
+version: 1
+name: swarm-app-template
+stack: dotnet+node-vite
+defaultBranch: main
+commands:
+  build: pwsh -File scripts/ci/build.ps1
+  unit: pwsh -File scripts/ci/test.ps1
+  lint: pwsh -File scripts/ci/lint.ps1
+  dev: npm --prefix apps/web run dev
+  devBackend: dotnet run --project apps/api
+domain:
+  glossary: docs/glossary.md
+  rules:
+    - AGENTS.md
+  tracker: docs/feature-tracker.md
+agents:
+  roster:
+    - researcher
+    - analyst
+    - implementer
+    - reviewer
+    - verifier
+    - e2e-tester
+    - tracker
+  analystAutoLabel: false
+e2e:
+  # `command`, not `agent`: the suite is committed and deterministic, so the gate runs the
+  # same four tests whether a human or an agent triggered it. `agent` is for repositories
+  # where nobody has written the suite yet, and it costs a language model on every gate.
+  mode: command
+  command: npm --prefix apps/web run test:e2e
+  ready:
+    - http://localhost:5173
+  baseline:
+    - login
+    - navigation
+    - no-console-errors
+  areas:
+    - name: auth
+      match: apps/web/src/features/auth/
+      routes:
+        - /login
+        - /register
+swarm:
+  mode: hybrid
+  concurrency: 3
+  lockTimeoutMinutes: 45
+autoMerge: false
+labels:
+  prefix: "ai:"
