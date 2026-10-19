@@ -34,11 +34,20 @@ public sealed class CorsOptionsValidator : IValidateOptions<CorsSettings>
                 continue;
             }
 
-            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri))
+            // Explicitly require http or https with a host, rather than relying on what
+            // `Uri.TryCreate` decides a "relative" path is. On Windows `/app` fails to parse as
+            // absolute; on Linux it can parse as a file URI - so a validator written against
+            // the negative case passed on one platform and failed on the other, which is
+            // exactly what CI found when this repository first ran on a Linux runner.
+            if (!Uri.TryCreate(origin, UriKind.Absolute, out var uri)
+                || (uri.Scheme != Uri.UriSchemeHttps && uri.Scheme != Uri.UriSchemeHttp)
+                || string.IsNullOrEmpty(uri.Host))
             {
-                failures.Add($"Cors:AllowedOrigins entry '{origin}' is not an absolute URL.");
+                failures.Add(
+                    $"Cors:AllowedOrigins entry '{origin}' is not an absolute http(s) URL with a host. " +
+                    "A browser will refuse to honour anything else.");
             }
-            else if (uri.Scheme != Uri.UriSchemeHttps && !uri.IsLoopback)
+            else if (uri.Scheme == Uri.UriSchemeHttp && !uri.IsLoopback)
             {
                 failures.Add($"Cors:AllowedOrigins entry '{origin}' must use https (loopback is allowed for development).");
             }
