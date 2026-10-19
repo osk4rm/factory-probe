@@ -47,7 +47,7 @@ public sealed class BillingWebhookTests(ApiFactory factory) : IClassFixture<ApiF
         "\"id\":\"cs_1\",\"customer\":\"cus_1\",\"subscription\":\"" + subscriptionId + "\"," +
         "\"client_reference_id\":\"" + userId + "\"}}}";
 
-        [Fact]
+    [Fact]
     public async Task A_signed_event_creates_the_subscription_row()
     {
         var userId = await CreateUserAsync();
